@@ -32,8 +32,9 @@ Then open a thread, press **⌘J**, click **+**, and choose **Steps**. Requires 
 - Every step on one timeline with its own duration, and a shimmer on the one still running
 - Input and output for each step, and **Open file** for files it touched
 - Threads a message started, such as a captain's workers, on the same timeline and opening in place
+- **All threads** at the top of the list, with every thread this one started, whichever message started it
 
-Click **Reading**, **Writing** or any other total to list only those steps. **Thinking** stays hidden until you pick it. Drag the sidebar's edge to resize it, or use its panel icon to collapse it.
+Click **Reading**, **Writing** or any other total to list only those steps. Drag the sidebar's edge to resize it, or use its panel icon to collapse it.
 
 BB doesn't keep the output of file reads or web fetches, so those steps show their input only.
 

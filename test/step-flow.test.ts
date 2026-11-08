@@ -54,12 +54,12 @@ describe("the step flow", () => {
     expect(shape(flowOf([step("a"), step("b")], 0))).toEqual(["step:a", "step:b"]);
   });
 
-  it("drops short thoughts, so they do not split a run, and notes long ones between cards", () => {
+  it("keeps every thought in the flow, each one ending a run", () => {
     const items = flowOf(
       [step("a"), thought("t1", 500), step("b"), step("c"), thought("t2", 22_000), step("d")],
       0,
     );
-    expect(shape(items)).toEqual(["group:a,b,c", "thought:t2", "step:d"]);
+    expect(shape(items)).toEqual(["step:a", "thought:t1", "step:b", "step:c", "thought:t2", "step:d"]);
   });
 
   it("never folds the running step away", () => {

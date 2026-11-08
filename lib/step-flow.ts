@@ -5,9 +5,6 @@ import {
   type StepKind,
 } from "./steps";
 
-/** Thinking shorter than this is left off the flow; the ribbon still counts it. */
-export const THOUGHT_SHOWN_MS = 2_000;
-
 /** This many steps in a row with the same verb fold into one card. */
 export const GROUP_MIN = 3;
 
@@ -38,8 +35,6 @@ export function flowOf(steps: readonly Step[], now: number): FlowItem[] {
   };
   for (const step of steps) {
     if (step.kind === "think") {
-      if (lengthOf(step, now) < THOUGHT_SHOWN_MS && step.status !== "running")
-        continue;
       flush();
       items.push({ type: "thought", step });
       continue;
@@ -114,6 +109,7 @@ const VERB_ICONS: Record<string, string> = {
   Searched: "Search",
   "Searched the web": "Search",
   Listed: "Folder",
+  Replied: "MessageSquare",
 };
 
 const iconOf = (step: Pick<Step, "kind" | "verb">): string =>
@@ -146,7 +142,11 @@ function stepNode(step: Step, now: number): RunNode {
     id: step.id,
     kind: step.kind,
     icon: iconOf(step),
-    title: thought ? step.verb : step.target || step.verb,
+    title: thought
+      ? step.status === "running"
+        ? "Thinking"
+        : step.verb
+      : step.target || step.verb,
     place: failed ? `Failed: ${place}` : place,
     startedAt: step.startedAt,
     endedAt: step.endedAt,

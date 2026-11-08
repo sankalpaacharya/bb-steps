@@ -155,7 +155,7 @@ function TurnBody({
     });
   const shown =
     filter === null
-      ? turn.steps.filter((step) => step.kind !== "think")
+      ? turn.steps
       : turn.steps.filter((step) => step.kind === filter);
   const ownEndedAt = turn.spans.at(-1)?.to ?? now;
   const shownThreads = filter === null || filter === "agent" ? threads : [];
@@ -199,9 +199,7 @@ function TurnBody({
           <Note>
             {filter === "think"
               ? "This is the model thinking and writing between its steps."
-              : filter === null
-                ? "Only thinking in this message. Pick Thinking to read it."
-                : "No steps of this kind."}
+              : "No steps of this kind."}
           </Note>
         )}
       </div>
@@ -211,6 +209,62 @@ function TurnBody({
 
 const clockMinutes = (time: number): string =>
   new Date(time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+const ALL_THREADS = "all-threads";
+
+/** Every thread under this one, each bar from its own start, longest filling the row. */
+function AllThreads({
+  threads,
+  now,
+  threadId,
+  turns,
+  openFile,
+}: {
+  threads: readonly ChildThread[];
+  now: number;
+  threadId: string;
+  turns: number;
+  openFile: OpenFile;
+}) {
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (id: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  const lengthOf = (thread: ChildThread) =>
+    Math.max((thread.endedAt ?? now) - thread.startedAt, 0);
+  const longest = Math.max(1, ...threads.map(lengthOf));
+  const newestFirst = [...threads].sort((a, b) => b.startedAt - a.startedAt);
+  return (
+    <div className="flex flex-col pb-3">
+      <div className="sticky top-0 z-10 flex flex-col gap-2 bg-sidebar px-2 pt-3 pb-2">
+        <p className="m-0 truncate text-[13px] leading-5 font-medium text-foreground">
+          All threads
+        </p>
+        <TimeAxis wall={longest} />
+      </div>
+      {newestFirst.map((thread) => (
+        <StepFlow
+          key={thread.id}
+          steps={[]}
+          threads={[thread]}
+          context={{
+            threadId,
+            turns,
+            turnStartedAt: thread.startedAt,
+            turnEndedAt: thread.startedAt + longest,
+            now,
+            expanded,
+            onToggle: toggle,
+            openFile,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
 function MessageRow({
   turn,
@@ -241,6 +295,7 @@ function MessageRow({
           className={cn(
             "min-w-0 flex-1 truncate text-xs",
             selected ? "text-foreground" : "text-foreground/70",
+            turn.running && "animate-shine",
           )}
         >
           {messageText(turn.prompt)}
@@ -328,7 +383,8 @@ export function StepsTab({ threadId }: ExperimentalThreadActionTabProps) {
   const [pick, setPick] = useState<{ threadId: string; turnId: string } | null>(
     null,
   );
-  const picked = pick?.threadId === threadId ? pick.turnId : null;
+  const choice = pick?.threadId === threadId ? pick.turnId : null;
+  const picked = choice === ALL_THREADS ? null : choice;
   const { data, error, refetch } = experimental_useRpcQuery({
     contract: rpcContract,
     method: "thread_steps",
@@ -339,7 +395,7 @@ export function StepsTab({ threadId }: ExperimentalThreadActionTabProps) {
   if (data !== undefined && data !== kept) setKept(data);
   const steps = data ?? (kept?.threadId === threadId ? kept : undefined);
   const childRunning =
-    steps?.children.some((child) => child.status === "running") ?? false;
+    steps?.allThreads.some((child) => child.status === "running") ?? false;
   const now = useLiveNow((steps?.running ?? false) || childRunning);
 
   const hostId =
@@ -382,6 +438,8 @@ export function StepsTab({ threadId }: ExperimentalThreadActionTabProps) {
     body = <Note>No steps yet. They show here as the agent works.</Note>;
   else {
     const focused = steps.turns.find((turn) => turn.id === steps.focus);
+    const showAll =
+      choice === ALL_THREADS || (choice === null && steps.allThreads.length > 0);
     const waiting = picked !== null && picked !== steps.focus;
     const canLoadMore =
       steps.hasOlder && steps.turnsRead === turns && turns < MAX_TURNS;
@@ -398,6 +456,32 @@ export function StepsTab({ threadId }: ExperimentalThreadActionTabProps) {
               className="h-full overflow-y-auto border-r border-border px-1.5 pb-1.5"
             >
               <ol className="m-0 flex flex-col gap-px p-0">
+              {steps.allThreads.length === 0 ? null : (
+                <li className="list-none pt-1.5">
+                  <button
+                    type="button"
+                    aria-current={showAll ? "true" : undefined}
+                    onClick={() => setPick({ threadId, turnId: ALL_THREADS })}
+                    className={cn(
+                      PANEL_ROW,
+                      "h-7 items-center gap-2 pr-9 pl-2",
+                      showAll && "bg-accent",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "min-w-0 truncate text-xs",
+                        showAll ? "text-foreground" : "text-foreground/70",
+                      )}
+                    >
+                      All threads
+                    </span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                      {steps.allThreads.length}
+                    </span>
+                  </button>
+                </li>
+              )}
                 {steps.turns.map((turn, index) => {
                   const day = dayLabel(turn.startedAt, Date.now());
                   const previous = steps.turns[index - 1];
@@ -411,7 +495,7 @@ export function StepsTab({ threadId }: ExperimentalThreadActionTabProps) {
                       )}
                       <MessageRow
                         turn={turn}
-                        selected={turn.id === (picked ?? steps.focus)}
+                        selected={!showAll && turn.id === (picked ?? steps.focus)}
                         now={now}
                         onSelect={() => setPick({ threadId, turnId: turn.id })}
                       />
@@ -445,7 +529,15 @@ export function StepsTab({ threadId }: ExperimentalThreadActionTabProps) {
           </div>
         )}
         <div className="min-w-0 flex-1 overflow-y-auto px-1">
-          {focused === undefined || waiting ? (
+          {showAll ? (
+            <AllThreads
+              threads={steps.allThreads}
+              now={childRunning ? now : Date.now()}
+              threadId={threadId}
+              turns={turns}
+              openFile={openFile}
+            />
+          ) : focused === undefined || waiting ? (
             <div className="p-2">
               <Note>Loading steps…</Note>
             </div>

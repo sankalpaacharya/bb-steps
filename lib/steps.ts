@@ -174,6 +174,8 @@ export type ChildThread = z.infer<typeof childThreadSchema>;
 export const focusedStepsSchema = threadStepsSchema.extend({
   /** Threads started during the turn in focus, at any depth under this one. */
   children: z.array(childThreadSchema),
+  /** Every thread under this one, whichever message started it. */
+  allThreads: z.array(childThreadSchema),
   /** The one turn sent with its steps; the others are only listed. */
   focus: z.string().nullable(),
   /** The `turns` this answer read, so a reader knows when it has caught up. */
@@ -559,7 +561,21 @@ const operationSchema = z.object({
   detail: z.string().nullish(),
 });
 
+const replySchema = z.object({ text: z.string() });
+
 function faceOf(row: Row): Face | null {
+  if (row.kind === "conversation" && row.role === "assistant") {
+    const text = replySchema.safeParse(row.raw).data?.text ?? "";
+    return text === ""
+      ? null
+      : {
+          kind: "think",
+          verb: "Replied",
+          target: oneLine(text),
+          detail: text,
+          path: null,
+        };
+  }
   if (row.kind === "work")
     return WORK_FACES[row.workKind ?? ""]?.(row.raw) ?? toolFace(row.raw);
   if (row.kind !== "system") return null;
@@ -765,6 +781,7 @@ export function focusTurn(
     focus: focus?.id ?? null,
     turnsRead,
     children,
+    allThreads: [...descendants],
     turns: steps.turns.map((turn) =>
       turn === focus
         ? turn

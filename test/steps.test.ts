@@ -190,7 +190,7 @@ describe("turns", () => {
         text,
         startedAt,
         endedAt,
-        steps: steps.length,
+        steps: steps.filter((step) => step.verb !== "Replied").length,
       })),
     ).toEqual([
       { text: "second ask", startedAt: at(60), endedAt: at(72), steps: 1 },
@@ -335,7 +335,11 @@ describe("a real thread", () => {
 
   it("finds the question, the subagents and their own steps, and the edit inside one", () => {
     const [, research, theme] = steps.turns;
-    expect(research!.steps.map((step) => step.kind)).toEqual([
+    expect(
+      research!.steps
+        .filter((step) => step.verb !== "Replied")
+        .map((step) => step.kind),
+    ).toEqual([
       "read",
       "think",
       "think",
@@ -419,5 +423,6 @@ describe("threads a message started", () => {
     const older = steps.turns[1]!.id;
     expect(focusTurn(steps, older, 10, all).children.map((t) => t.id)).toEqual(["early"]);
     expect(focusTurn(steps, null, 10, all).children.map((t) => t.id)).toEqual(["late"]);
+    expect(focusTurn(steps, null, 10, all).allThreads).toHaveLength(2);
   });
 });

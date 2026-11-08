@@ -89,7 +89,9 @@ describe("the steps tab", () => {
     expect(shownSteps()).toEqual([
       "forest.ts",
       "npm run check",
+      "Thought",
       "forest.ts",
+      "Replied",
     ]);
     expect(
       within(screen.getByRole("navigation", { name: "Messages" }))
@@ -105,7 +107,7 @@ describe("the steps tab", () => {
     expect(reading.getAttribute("aria-pressed")).toBe("true");
     expect(shownSteps()).toEqual(["forest.ts"]);
     fireEvent.click(reading);
-    expect(shownSteps()).toHaveLength(3);
+    expect(shownSteps()).toHaveLength(5);
   });
 
   it("opens a step to its full command, and a read file in bb's preview", async () => {
@@ -224,12 +226,12 @@ describe("the steps tab", () => {
     expect(within(list).queryByText(/unslop/)).toBeNull();
   });
 
-  it("keeps thinking out of the steps until Thinking is picked", async () => {
+  it("shows thoughts among the steps, and only them when Thinking is picked", async () => {
     renderSteps(ready);
     await screen.findByRole("group", { name: "Show one kind" });
-    expect(shownSteps()).not.toContain("Thought");
+    expect(shownSteps()).toContain("Thought");
     fireEvent.click(screen.getByRole("button", { name: /^Thinking/ }));
-    expect(shownSteps()).toEqual(["Thought"]);
+    expect(shownSteps()).toEqual(["Thought", "Replied"]);
   });
 
   it("shows a thread the message started, and opens its steps in place", async () => {
@@ -272,6 +274,33 @@ describe("the steps tab", () => {
     );
     expect((await screen.findByText("a.ts")).className).toContain("animate-shine");
     expect(screen.getByText("ls").className).not.toContain("animate-shine");
+  });
+
+  it("opens on all threads when this thread has started some, and a message still opens", async () => {
+    const { reads } = renderSteps(ready, [
+      {
+        id: "w",
+        title: "Old worker",
+        status: "done",
+        startedAt: at(5),
+        endedAt: at(9),
+      },
+    ]);
+    const list = await screen.findByRole("navigation", { name: "Messages" });
+    const all = within(list).getByRole("button", { name: /^All threads/ });
+    expect(all.getAttribute("aria-current")).toBe("true");
+    expect(await screen.findByText("Old worker")).toBeTruthy();
+    fireEvent.click(within(list).getByRole("button", { name: /first, look around/ }));
+    await waitFor(() =>
+      expect(reads).toContainEqual({
+        threadId: "thr",
+        turns: 10,
+        turnId: expect.stringContaining("t1"),
+      }),
+    );
+    await waitFor(() =>
+      expect(all.getAttribute("aria-current")).toBeNull(),
+    );
   });
 
   it("says when there are no steps yet", async () => {

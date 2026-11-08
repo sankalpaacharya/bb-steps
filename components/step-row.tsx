@@ -1,5 +1,8 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
-import { experimental_useRpcQuery } from "@get-bb/plugin-sdk/app";
+import {
+  experimental_SourceCode as SourceCode,
+  experimental_useRpcQuery,
+} from "@get-bb/plugin-sdk/app";
 
 import {
   runsOf,
@@ -38,8 +41,18 @@ const SMALL_BUTTON = `inline-flex h-6 cursor-pointer items-center gap-1 rounded-
 
 const PROSE_CLAMP_CHARS = 320;
 
-const CODE_BLOCK =
-  "m-0 max-h-48 overflow-auto rounded-md bg-muted/60 p-2 font-mono text-2xs leading-relaxed break-all whitespace-pre-wrap text-foreground/80";
+/** bb's own code viewer, whose colours follow `path`'s language. */
+function Code({ content, path }: { content: string; path: string }) {
+  return (
+    <div className="max-h-48 overflow-auto rounded-md text-2xs">
+      <SourceCode content={content} path={path} overflow="wrap" />
+    </div>
+  );
+}
+
+/** A name that gives a step's input the right colours. */
+const inputPath = (step: Step): string =>
+  step.kind === "run" || step.path === null ? "command.sh" : step.path;
 
 /** Name column and timeline column of a waterfall row, and of its time axis. */
 export const WATERFALL_COLUMNS =
@@ -138,7 +151,7 @@ function StepOutput({ step, context }: { step: Step; context: RowContext }) {
   return (
     <DetailSection title="Output">
       {STEP_KINDS[step.kind].detail === "code" ? (
-        <pre className={CODE_BLOCK}>{data.output}</pre>
+        <Code content={data.output} path="output.txt" />
       ) : (
         <Prose text={data.output} />
       )}
@@ -185,7 +198,7 @@ function StepDetail({ step, context }: { step: Step; context: RowContext }) {
       {step.detail === null ? null : (
         <DetailSection title={thought ? "Thinking" : "Input"}>
           {STEP_KINDS[step.kind].detail === "code" ? (
-            <pre className={CODE_BLOCK}>{step.detail}</pre>
+            <Code content={step.detail} path={inputPath(step)} />
           ) : (
             <Prose text={step.detail} />
           )}
@@ -226,7 +239,7 @@ function Bars({ row, context }: { row: VisibleRun; context: RowContext }) {
         node.status === "error"
           ? "bg-destructive-text"
           : running
-            ? "animate-pulse bg-primary motion-reduce:animate-none"
+            ? "animate-shine-icon bg-primary"
             : "bg-foreground/40 group-hover/run:bg-foreground/60",
       )}
       style={{ left: `${start}%`, width: `${end - start}%` }}
@@ -285,7 +298,7 @@ function ThreadSteps({
   );
   if (error !== null) return note("Could not read this thread's steps.");
   if (data === undefined) return note("Loading steps…");
-  const steps = data.steps.filter((step) => step.kind !== "think");
+  const { steps } = data;
   if (steps.length === 0) return note("No steps in this thread yet.");
   return (
     <StepFlow
