@@ -144,12 +144,31 @@ describe("thread steps", () => {
     expect(steps).toMatchObject({ hasOlder: true, turnsRead: 9 });
   });
 
-  it("refuses more than 200 turns", async () => {
+  it("keeps only the newest 50 messages of a chat", async () => {
+    const many = Array.from({ length: 60 }, (_, index) => ({
+      ...rows[0],
+      id: `prompt-${index}`,
+      turnId: `turn-${index}`,
+      startedAt: 1_000 + index,
+      createdAt: 1_000 + index,
+    }));
+    const { harness } = await load({ timeline: { status: "idle", rows: many } });
+    const steps = (await harness.callRpc("thread_steps", {
+      threadId: "thr_a",
+      turns: 50,
+      turnId: null,
+    })) as { turns: { startedAt: number }[] };
+    expect(steps.turns).toHaveLength(50);
+    expect(steps.turns[0]!.startedAt).toBe(1_059);
+    expect(steps.turns.at(-1)!.startedAt).toBe(1_010);
+  });
+
+  it("refuses more than 50 turns", async () => {
     const { harness } = await load();
     await expect(
       harness.callRpc("thread_steps", {
         threadId: "thr_a",
-        turns: 201,
+        turns: 51,
         turnId: null,
       }),
     ).rejects.toThrow();

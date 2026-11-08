@@ -3,8 +3,8 @@ import { z } from "zod";
 
 import { focusedStepsSchema, stepSchema } from "./steps";
 
-/** The most of a thread's messages the list reads. */
-export const MAX_TURNS = 200;
+/** The most of a thread's messages the list keeps; older ones drop off. */
+export const MAX_TURNS = 50;
 
 /** One thread's steps, invalidated when that thread changes. */
 export const stepsTag = (threadId: string): string => `steps:${threadId}`;

@@ -51,25 +51,41 @@ const parseOpen = (raw: string): boolean | undefined => {
 };
 const SIDEBAR_WIDTH = { min: 120, max: () => 420, initial: () => 208 };
 
-const CHIP = `flex cursor-pointer flex-col items-start rounded-md px-1.5 py-0.5 text-left hover:bg-accent/60 aria-pressed:bg-accent ${FOCUS_RING}`;
-
 const TEXT_BUTTON = `cursor-pointer rounded-md px-2 py-1 text-2xs text-muted-foreground hover:bg-accent/60 hover:text-foreground ${FOCUS_RING}`;
 
 /** Always shown, in this order; any other kind follows once it has time. */
 const MAIN_KINDS: readonly StepKind[] = ["read", "edit", "run", "think"];
 
-function Stat({ label, value }: { label: string; value: string }) {
+const STRIP = "-mx-1.5 flex gap-1";
+const CELL = "relative flex min-w-0 flex-1 basis-0 flex-col rounded-md px-1.5 pt-0.5 pb-2 text-left";
+
+function CellText({
+  label,
+  value,
+  quiet = false,
+}: {
+  label: string;
+  value: string;
+  quiet?: boolean;
+}) {
   return (
     <>
-      <span className="text-[11px] leading-4 text-muted-foreground">{label}</span>
-      <span className="text-[13px] leading-5 tabular-nums text-foreground">
+      <span className="truncate text-[11px] leading-4 text-muted-foreground">
+        {label}
+      </span>
+      <span
+        className={cn(
+          "truncate text-sm leading-5 font-medium tabular-nums",
+          quiet ? "text-muted-foreground/60" : "text-foreground",
+        )}
+      >
         {value}
       </span>
     </>
   );
 }
 
-/** The whole time, then where it went; a kind lists only its own steps when picked. */
+/** The whole time, then each kind with a thin line for its share of it. */
 function Stats({
   total,
   totals,
@@ -85,32 +101,51 @@ function Stats({
     (kind) => !MAIN_KINDS.includes(kind) && totals[kind] > 0,
   );
   return (
-    <div className="flex flex-wrap items-start gap-x-1 gap-y-1">
-      <div className="flex flex-col px-1.5 py-0.5">
-        <Stat label="Total" value={formatElapsed(total)} />
+    <div role="group" aria-label="Show one kind" className={STRIP}>
+      <div className={CELL}>
+        <CellText label="Total" value={formatElapsed(total)} />
       </div>
-      <div
-        role="group"
-        aria-label="Show one kind"
-        className="flex flex-wrap gap-x-1 gap-y-1"
-      >
-        {[...MAIN_KINDS, ...others].map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            aria-pressed={filter === kind}
-            title={
-              kind === "think"
-                ? "The model thinking or writing, between and during its steps"
-                : undefined
-            }
-            onClick={() => onFilter(filter === kind ? null : kind)}
-            className={CHIP}
+      {[...MAIN_KINDS, ...others].map((kind) => (
+        <button
+          key={kind}
+          type="button"
+          aria-pressed={filter === kind}
+          title={
+            kind === "think"
+              ? "The model thinking or writing, between and during its steps"
+              : undefined
+          }
+          onClick={() => onFilter(filter === kind ? null : kind)}
+          className={cn(
+            CELL,
+            "cursor-pointer hover:bg-accent/60 aria-pressed:bg-accent",
+            FOCUS_RING,
+          )}
+        >
+          <CellText
+            label={STEP_KINDS[kind].label}
+            value={formatElapsed(totals[kind])}
+            quiet={totals[kind] === 0}
+          />
+          <span
+            aria-hidden
+            className="absolute inset-x-1.5 bottom-0.5 h-0.5 overflow-hidden rounded-full bg-foreground/[0.07]"
           >
-            <Stat label={STEP_KINDS[kind].label} value={formatElapsed(totals[kind])} />
-          </button>
-        ))}
-      </div>
+            <span
+              className={cn(
+                "block h-full rounded-full",
+                kind === "think" && "bg-foreground/35",
+              )}
+              style={{
+                width: `${total > 0 ? Math.min((totals[kind] / total) * 100, 100) : 0}%`,
+                ...(kind === "think"
+                  ? {}
+                  : { backgroundColor: STEP_KINDS[kind].color }),
+              }}
+            />
+          </span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -180,14 +215,12 @@ function TurnBody({
         <p className="m-0 truncate text-[13px] leading-5 font-medium text-foreground">
           {messageText(turn.prompt)}
         </p>
-        <div className="-mx-1.5">
-          <Stats
-            total={Math.max(ownEndedAt - turn.startedAt, 0)}
-            totals={turn.totals}
-            filter={filter}
-            onFilter={setFilter}
-          />
-        </div>
+        <Stats
+          total={Math.max(ownEndedAt - turn.startedAt, 0)}
+          totals={turn.totals}
+          filter={filter}
+          onFilter={setFilter}
+        />
         {shown.length + shownThreads.length > 0 ? (
           <TimeAxis wall={Math.max(turnEndedAt - turn.startedAt, 0)} />
         ) : null}
@@ -199,7 +232,9 @@ function TurnBody({
           <Note>
             {filter === "think"
               ? "This is the model thinking and writing between its steps."
-              : "No steps of this kind."}
+              : filter === null
+                ? "No steps yet."
+                : "No steps of this kind."}
           </Note>
         )}
       </div>
@@ -236,6 +271,8 @@ function AllThreads({
   const lengthOf = (thread: ChildThread) =>
     Math.max((thread.endedAt ?? now) - thread.startedAt, 0);
   const longest = Math.max(1, ...threads.map(lengthOf));
+  const count = (status: ChildThread["status"]) =>
+    threads.filter((thread) => thread.status === status).length;
   const newestFirst = [...threads].sort((a, b) => b.startedAt - a.startedAt);
   return (
     <div className="flex flex-col pb-3">
@@ -243,6 +280,20 @@ function AllThreads({
         <p className="m-0 truncate text-[13px] leading-5 font-medium text-foreground">
           All threads
         </p>
+        <div className={STRIP}>
+          {(
+            [
+              ["Threads", threads.length],
+              ["Running", count("running")],
+              ["Done", count("done")],
+              ["Failed", count("error")],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label} className={CELL}>
+              <CellText label={label} value={String(value)} quiet={value === 0} />
+            </div>
+          ))}
+        </div>
         <TimeAxis wall={longest} />
       </div>
       {newestFirst.map((thread) => (

@@ -303,6 +303,18 @@ describe("the steps tab", () => {
     );
   });
 
+  it("says a new message has no steps yet, not that a kind is empty", async () => {
+    renderSteps(() =>
+      buildThreadSteps([prompt("t1", 0, "hi")], {
+        threadId: "thr",
+        running: true,
+        now: at(2),
+        hasOlder: false,
+      }),
+    );
+    expect(await screen.findByText("No steps yet.")).toBeTruthy();
+  });
+
   it("says when there are no steps yet", async () => {
     renderSteps(() => ({ ...ready(), turns: [] }));
     expect(

@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 
-import { rpcContract, stepsTag } from "./lib/rpc";
+import { MAX_TURNS, rpcContract, stepsTag } from "./lib/rpc";
 import {
   buildThreadSteps,
   focusTurn,
@@ -136,7 +136,12 @@ export default async function plugin(bb: BbPluginApi) {
         now: Date.now(),
         hasOlder: timeline.hasOlder,
       });
-      return focusTurn(steps, turnId, turns, descendants);
+      return focusTurn(
+        { ...steps, turns: steps.turns.slice(0, MAX_TURNS) },
+        turnId,
+        turns,
+        descendants,
+      );
     },
 
     thread_run: async ({ threadId }) => {

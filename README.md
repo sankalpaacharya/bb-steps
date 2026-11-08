@@ -36,6 +36,8 @@ Then open a thread, press **⌘J**, click **+**, and choose **Steps**. Requires 
 
 Click **Reading**, **Writing** or any other total to list only those steps. Drag the sidebar's edge to resize it, or use its panel icon to collapse it.
 
+Steps reads each chat's history from BB and stores no copy of it. The list keeps the newest 50 messages per chat, and older ones drop off. Your chat history in BB isn't touched.
+
 BB doesn't keep the output of file reads or web fetches, so those steps show their input only.
 
 ## Dev
