@@ -42,7 +42,7 @@ export const STEP_KINDS: Record<StepKind, StepKindInfo> = {
     type: "Question",
   },
   edit: {
-    label: "Editing",
+    label: "Writing",
     rank: 1,
     color: "oklch(0.62 0.15 80)",
     detail: "code",
@@ -102,7 +102,7 @@ export const STEP_KINDS: Record<StepKind, StepKindInfo> = {
 const stepKindSchema = z.enum(STEP_KIND_IDS);
 const stepStatusSchema = z.enum(["running", "done", "error", "interrupted"]);
 
-const stepSchema = z.object({
+export const stepSchema = z.object({
   id: z.string(),
   kind: stepKindSchema,
   verb: z.string(),
@@ -160,7 +160,20 @@ export const threadStepsSchema = z.object({
 
 export type ThreadSteps = z.infer<typeof threadStepsSchema>;
 
+export const childThreadSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: stepStatusSchema,
+  startedAt: z.number(),
+  /** Null while it runs. */
+  endedAt: z.number().nullable(),
+});
+
+export type ChildThread = z.infer<typeof childThreadSchema>;
+
 export const focusedStepsSchema = threadStepsSchema.extend({
+  /** Threads started during the turn in focus, at any depth under this one. */
+  children: z.array(childThreadSchema),
   /** The one turn sent with its steps; the others are only listed. */
   focus: z.string().nullable(),
   /** The `turns` this answer read, so a reader knows when it has caught up. */
@@ -734,13 +747,24 @@ export function focusTurn(
   steps: ThreadSteps,
   turnId: string | null,
   turnsRead: number,
+  descendants: readonly ChildThread[] = [],
 ): FocusedSteps {
   const focus =
     steps.turns.find((turn) => turn.id === turnId) ?? steps.turns[0] ?? null;
+  const newer = focus === null ? undefined : steps.turns[steps.turns.indexOf(focus) - 1];
+  const children =
+    focus === null
+      ? []
+      : descendants.filter(
+          (child) =>
+            child.startedAt >= focus.startedAt &&
+            (newer === undefined || child.startedAt < newer.startedAt),
+        );
   return {
     ...steps,
     focus: focus?.id ?? null,
     turnsRead,
+    children,
     turns: steps.turns.map((turn) =>
       turn === focus
         ? turn

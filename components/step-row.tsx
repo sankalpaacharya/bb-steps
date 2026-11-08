@@ -8,7 +8,12 @@ import {
   type VisibleRun,
 } from "@/lib/step-flow";
 import { rpcContract } from "@/lib/rpc";
-import { STEP_KINDS, type Step, type StepKind } from "@/lib/steps";
+import {
+  STEP_KINDS,
+  type ChildThread,
+  type Step,
+  type StepKind,
+} from "@/lib/steps";
 import { FOCUS_RING, PANEL_ROW } from "@/lib/styles";
 import { formatElapsed, formatOffset } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -38,7 +43,7 @@ const CODE_BLOCK =
 
 /** Name column and timeline column of a waterfall row, and of its time axis. */
 export const WATERFALL_COLUMNS =
-  "grid grid-cols-[minmax(0,min(56%,18rem))_minmax(0,1fr)_3.5rem]";
+  "grid grid-cols-[minmax(0,min(56%,18rem))_minmax(0,1fr)_4rem]";
 
 /** Each level of nesting steps right by this. */
 const INDENT = 16;
@@ -263,6 +268,45 @@ function Bars({ row, context }: { row: VisibleRun; context: RowContext }) {
   );
 }
 
+/** Turns read for an opened thread, so its output can be found again. */
+const THREAD_TURNS = 40;
+
+/** A thread started from this one, opened in place on the same timeline. */
+function ThreadSteps({
+  thread,
+  depth,
+  context,
+}: {
+  thread: ChildThread;
+  depth: number;
+  context: RowContext;
+}) {
+  const { data, error } = experimental_useRpcQuery({
+    contract: rpcContract,
+    method: "thread_run",
+    input: { threadId: thread.id },
+  });
+  const note = (text: string) => (
+    <p
+      className="m-0 py-1 pr-2 text-2xs text-muted-foreground"
+      style={{ paddingLeft: INDENT * depth + 8 }}
+    >
+      {text}
+    </p>
+  );
+  if (error !== null) return note("Could not read this thread's steps.");
+  if (data === undefined) return note("Loading steps…");
+  const steps = data.steps.filter((step) => step.kind !== "think");
+  if (steps.length === 0) return note("No steps in this thread yet.");
+  return (
+    <StepFlow
+      steps={steps}
+      depth={depth}
+      context={{ ...context, threadId: thread.id, turns: THREAD_TURNS }}
+    />
+  );
+}
+
 function RunRow({ row, context }: { row: VisibleRun; context: RowContext }) {
   const { node, depth } = row;
   const open = context.expanded.has(node.id);
@@ -298,6 +342,7 @@ function RunRow({ row, context }: { row: VisibleRun; context: RowContext }) {
             className={cn(
               "ml-auto shrink-0",
               node.children.length === 0 &&
+                node.thread === null &&
                 !open &&
                 "opacity-0 group-hover/run:opacity-100 group-focus-visible/run:opacity-100",
             )}
@@ -310,6 +355,11 @@ function RunRow({ row, context }: { row: VisibleRun; context: RowContext }) {
           {formatElapsed(length)}
         </span>
       </button>
+      {node.thread === null ? null : (
+        <Collapsible open={open}>
+          <ThreadSteps thread={node.thread} depth={depth + 1} context={context} />
+        </Collapsible>
+      )}
       {node.step === null ? null : (
         <Collapsible open={open}>
           <div style={{ paddingLeft: indent + 34 }}>
@@ -327,12 +377,21 @@ function RunRow({ row, context }: { row: VisibleRun; context: RowContext }) {
  */
 export function StepFlow({
   steps,
+  threads,
   context,
+  depth = 0,
 }: {
   steps: readonly Step[];
+  /** Threads started alongside these steps, drawn in time order among them. */
+  threads?: readonly ChildThread[];
   context: RowContext;
+  depth?: number;
 }) {
-  const rows = visibleRuns(runsOf(steps, context.now), context.expanded);
+  const rows = visibleRuns(
+    runsOf(steps, context.now, threads),
+    context.expanded,
+    depth,
+  );
   return (
     <ol className="m-0 flex flex-col p-0">
       {rows.map((row) => (

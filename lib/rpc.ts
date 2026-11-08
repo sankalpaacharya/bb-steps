@@ -1,7 +1,7 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 
-import { focusedStepsSchema } from "./steps";
+import { focusedStepsSchema, stepSchema } from "./steps";
 
 /** The most of a thread's messages the list reads. */
 export const MAX_TURNS = 200;
@@ -21,6 +21,12 @@ export const rpcContract = defineRpcContract({
       turnId: z.string().min(1).max(1000).nullable(),
     }),
     output: focusedStepsSchema,
+    tags: ({ threadId }) => [stepsTag(threadId)],
+  },
+  /** Every step of a thread started from another, read only when it is opened. */
+  thread_run: {
+    input: z.strictObject({ threadId }),
+    output: z.object({ steps: z.array(stepSchema) }),
     tags: ({ threadId }) => [stepsTag(threadId)],
   },
   /** A step's own output, read only when the step is opened. */

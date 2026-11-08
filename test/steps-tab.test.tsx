@@ -4,7 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderSlot } from "@get-bb/plugin-sdk/testing/app";
 
 import { StepsTab } from "../components/steps-tab";
-import { buildThreadSteps, focusTurn, type ThreadSteps } from "../lib/steps";
+import {
+  buildThreadSteps,
+  focusTurn,
+  type ChildThread,
+  type ThreadSteps,
+} from "../lib/steps";
 import { thread } from "./fixtures";
 import { at, command, prompt, reply, thought, work } from "./timeline-rows";
 
@@ -32,7 +37,7 @@ const ready = (): ThreadSteps =>
     hasOlder: false,
   });
 
-function renderSteps(steps: () => ThreadSteps) {
+function renderSteps(steps: () => ThreadSteps, descendants: ChildThread[] = []) {
   const reads: unknown[] = [];
   const view = renderSlot(
     { component: StepsTab },
@@ -47,9 +52,17 @@ function renderSteps(steps: () => ThreadSteps) {
       rpc: {
         thread_steps: (input: { turnId: string | null; turns: number }) => {
           reads.push(input);
-          return focusTurn(steps(), input.turnId, input.turns);
+          return focusTurn(steps(), input.turnId, input.turns, descendants);
         },
         step_output: () => ({ output: "3 passed" }),
+        thread_run: () => ({
+          steps: buildThreadSteps(rows, {
+            threadId: "w",
+            running: false,
+            now: at(1000),
+            hasOlder: false,
+          }).turns[1]!.steps,
+        }),
       } as never,
     },
   );
@@ -71,7 +84,7 @@ describe("the steps tab", () => {
       within(legend)
         .getAllByRole("button")
         .map((chip) => chip.textContent),
-    ).toEqual(["Running40s", "Thinking18s", "Reading1s", "Editing1s"]);
+    ).toEqual(["Reading1s", "Writing1s", "Running40s", "Thinking18s"]);
     expect(reads).toContainEqual({ threadId: "thr", turns: 10, turnId: null });
     expect(shownSteps()).toEqual([
       "forest.ts",
@@ -217,6 +230,33 @@ describe("the steps tab", () => {
     expect(shownSteps()).not.toContain("Thought");
     fireEvent.click(screen.getByRole("button", { name: /^Thinking/ }));
     expect(shownSteps()).toEqual(["Thought"]);
+  });
+
+  it("shows a thread the message started, and opens its steps in place", async () => {
+    renderSteps(ready, [
+      {
+        id: "w",
+        title: "Fix the login",
+        status: "done",
+        startedAt: at(120),
+        endedAt: at(150),
+      },
+    ]);
+    fireEvent.click((await screen.findByText("Fix the login")).closest("button")!);
+    expect(await screen.findByText("ls")).toBeTruthy();
+  });
+
+  it("always shows reading and writing, and the whole time first", async () => {
+    renderSteps(() =>
+      buildThreadSteps(
+        [prompt("t1", 0, "hi"), command("t1", 1, 2, "npm test"), reply("t1", 4)],
+        { threadId: "thr", running: false, now: at(1000), hasOlder: false },
+      ),
+    );
+    const reading = await screen.findByRole("button", { name: /^Reading/ });
+    expect(reading.textContent).toBe("Reading0s");
+    expect(screen.getByRole("button", { name: /^Writing/ }).textContent).toBe("Writing0s");
+    expect(screen.getByText("Total")).toBeTruthy();
   });
 
   it("says when there are no steps yet", async () => {

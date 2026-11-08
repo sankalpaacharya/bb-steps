@@ -400,3 +400,24 @@ describe("the turn in focus", () => {
     ]);
   });
 });
+
+describe("threads a message started", () => {
+  const steps = buildThreadSteps(
+    [prompt("t1", 0, "first"), reply("t1", 5), prompt("t2", 10, "second"), reply("t2", 15)],
+    { threadId: "thr", running: false, now: at(100), hasOlder: false },
+  );
+  const thread = (id: string, at_: number) => ({
+    id,
+    title: id,
+    status: "done" as const,
+    startedAt: at(at_),
+    endedAt: at(at_ + 1),
+  });
+  const all = [thread("early", 7), thread("late", 12)];
+
+  it("belongs to the message it started under, until the next one", () => {
+    const older = steps.turns[1]!.id;
+    expect(focusTurn(steps, older, 10, all).children.map((t) => t.id)).toEqual(["early"]);
+    expect(focusTurn(steps, null, 10, all).children.map((t) => t.id)).toEqual(["late"]);
+  });
+});

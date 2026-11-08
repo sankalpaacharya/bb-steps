@@ -111,6 +111,18 @@ describe("the step flow", () => {
   });
 });
 
+describe("threads in the waterfall", () => {
+  it("sits among the steps in time order, and opens as a thread", () => {
+    const runs = runsOf(
+      [step("a", { startedAt: 0 }), step("b", { kind: "run", verb: "Ran", startedAt: 20 })],
+      0,
+      [{ id: "w", title: "Worker", status: "running", startedAt: 10, endedAt: null }],
+    );
+    expect(runs.map((run) => run.title)).toEqual(["a.ts", "Worker", "b.ts"]);
+    expect(runs[1]!.thread?.id).toBe("w");
+  });
+});
+
 describe("the message list", () => {
   it("shows a message's own words, without the skills in front", () => {
     expect(messageText("/frontend-design:frontend-design yeah build it")).toBe("yeah build it");

@@ -10,7 +10,7 @@
     "name": "Steps",
     "description": "See what an agent did and where its time went: a waterfall of every step for each message, in a side panel tab.",
     "branding": {
-      "icon": "Clock"
+      "icon": "./assets/icons/waterfall.svg"
     },
     "server": "./server.ts",
     "app": "./app.tsx"

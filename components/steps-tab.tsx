@@ -23,6 +23,7 @@ import {
   STEP_KINDS,
   STEP_KIND_IDS,
   extendTo,
+  type ChildThread,
   type Step,
   type StepKind,
   type TurnSteps,
@@ -51,47 +52,66 @@ const parseOpen = (raw: string): boolean | undefined => {
 };
 const SIDEBAR_WIDTH = { min: 120, max: () => 420, initial: () => 208 };
 
-const CHIP = `inline-flex h-5 cursor-pointer items-center gap-1 rounded text-2xs text-muted-foreground hover:text-foreground aria-pressed:text-foreground aria-pressed:underline aria-pressed:underline-offset-4 ${FOCUS_RING}`;
+const CHIP = `flex cursor-pointer flex-col items-start rounded-md px-1.5 py-0.5 text-left hover:bg-accent/60 aria-pressed:bg-accent ${FOCUS_RING}`;
 
 const TEXT_BUTTON = `cursor-pointer rounded-md px-2 py-1 text-2xs text-muted-foreground hover:bg-accent/60 hover:text-foreground ${FOCUS_RING}`;
 
-function Legend({
+/** Always shown, in this order; any other kind follows once it has time. */
+const MAIN_KINDS: readonly StepKind[] = ["read", "edit", "run", "think"];
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <span className="text-[11px] leading-4 text-muted-foreground">{label}</span>
+      <span className="text-[13px] leading-5 tabular-nums text-foreground">
+        {value}
+      </span>
+    </>
+  );
+}
+
+/** The whole time, then where it went; a kind lists only its own steps when picked. */
+function Stats({
+  total,
   totals,
   filter,
   onFilter,
 }: {
+  total: number;
   totals: TurnSteps["totals"];
   filter: StepKind | null;
   onFilter: (kind: StepKind | null) => void;
 }) {
-  const kinds = STEP_KIND_IDS.filter((kind) => totals[kind] > 0).sort(
-    (a, b) => totals[b] - totals[a],
+  const others = STEP_KIND_IDS.filter(
+    (kind) => !MAIN_KINDS.includes(kind) && totals[kind] > 0,
   );
   return (
-    <div
-      role="group"
-      aria-label="Show one kind"
-      className="flex flex-wrap gap-x-3"
-    >
-      {kinds.map((kind) => (
-        <button
-          key={kind}
-          type="button"
-          aria-pressed={filter === kind}
-          title={
-            kind === "think"
-              ? "The model thinking or writing, between and during its steps"
-              : undefined
-          }
-          onClick={() => onFilter(filter === kind ? null : kind)}
-          className={CHIP}
-        >
-          {STEP_KINDS[kind].label}
-          <span className="tabular-nums">
-            {formatElapsed(totals[kind])}
-          </span>
-        </button>
-      ))}
+    <div className="flex flex-wrap items-start gap-x-1 gap-y-1">
+      <div className="flex flex-col px-1.5 py-0.5">
+        <Stat label="Total" value={formatElapsed(total)} />
+      </div>
+      <div
+        role="group"
+        aria-label="Show one kind"
+        className="flex flex-wrap gap-x-1 gap-y-1"
+      >
+        {[...MAIN_KINDS, ...others].map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            aria-pressed={filter === kind}
+            title={
+              kind === "think"
+                ? "The model thinking or writing, between and during its steps"
+                : undefined
+            }
+            onClick={() => onFilter(filter === kind ? null : kind)}
+            className={CHIP}
+          >
+            <Stat label={STEP_KINDS[kind].label} value={formatElapsed(totals[kind])} />
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -134,6 +154,7 @@ function TurnBody({
   threadId,
   turns,
   current,
+  threads,
 }: {
   turn: TurnSteps;
   now: number;
@@ -142,6 +163,8 @@ function TurnBody({
   turns: number;
   /** The step under way, when this message is the one running. */
   current: Step | null;
+  /** Threads this message started. */
+  threads: readonly ChildThread[];
 }) {
   const [filter, setFilter] = useState<StepKind | null>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -156,7 +179,12 @@ function TurnBody({
     filter === null
       ? turn.steps.filter((step) => step.kind !== "think")
       : turn.steps.filter((step) => step.kind === filter);
-  const turnEndedAt = turn.spans.at(-1)?.to ?? now;
+  const ownEndedAt = turn.spans.at(-1)?.to ?? now;
+  const shownThreads = filter === null || filter === "agent" ? threads : [];
+  const turnEndedAt = Math.max(
+    ownEndedAt,
+    ...shownThreads.map((thread) => thread.endedAt ?? now),
+  );
   const context: RowContext = {
     threadId,
     turns,
@@ -171,23 +199,25 @@ function TurnBody({
   return (
     <div className="flex flex-col pb-3">
       <div className="sticky top-0 z-10 flex flex-col gap-2 bg-sidebar px-2 pt-3 pb-2">
-        <div className="flex items-baseline gap-3">
-          <p className="m-0 min-w-0 flex-1 truncate text-[13px] leading-5 font-medium text-foreground">
-            {messageText(turn.prompt)}
-          </p>
-          <p className="m-0 shrink-0 text-xs tabular-nums text-muted-foreground">
-            {formatElapsed(Math.max(turnEndedAt - turn.startedAt, 0))}
-          </p>
-        </div>
+        <p className="m-0 truncate text-[13px] leading-5 font-medium text-foreground">
+          {messageText(turn.prompt)}
+        </p>
         <NowLine step={current} now={now} />
-        <Legend totals={turn.totals} filter={filter} onFilter={setFilter} />
-        {shown.length > 0 ? (
+        <div className="-mx-1.5">
+          <Stats
+            total={Math.max(ownEndedAt - turn.startedAt, 0)}
+            totals={turn.totals}
+            filter={filter}
+            onFilter={setFilter}
+          />
+        </div>
+        {shown.length + shownThreads.length > 0 ? (
           <TimeAxis wall={Math.max(turnEndedAt - turn.startedAt, 0)} />
         ) : null}
       </div>
       <div>
-        {shown.length > 0 ? (
-          <StepFlow steps={shown} context={context} />
+        {shown.length + shownThreads.length > 0 ? (
+          <StepFlow steps={shown} threads={shownThreads} context={context} />
         ) : (
           <Note>
             {filter === "think"
@@ -331,7 +361,9 @@ export function StepsTab({ threadId }: ExperimentalThreadActionTabProps) {
   const [kept, setKept] = useState(data);
   if (data !== undefined && data !== kept) setKept(data);
   const steps = data ?? (kept?.threadId === threadId ? kept : undefined);
-  const now = useLiveNow(steps?.running ?? false);
+  const childRunning =
+    steps?.children.some((child) => child.status === "running") ?? false;
+  const now = useLiveNow((steps?.running ?? false) || childRunning);
 
   const hostId =
     experimental_useSidebarThreads().threads.find(
@@ -444,11 +476,12 @@ export function StepsTab({ threadId }: ExperimentalThreadActionTabProps) {
             <TurnBody
               key={focused.id}
               turn={extendTo(focused, now)}
-              now={focused.running ? now : 0}
+              now={focused.running || childRunning ? now : 0}
               openFile={openFile}
               threadId={threadId}
               turns={turns}
               current={focused.running ? steps.now : null}
+              threads={steps.children}
             />
           )}
         </div>

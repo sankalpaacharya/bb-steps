@@ -1,4 +1,9 @@
-import { STEP_KINDS, type Step, type StepKind } from "./steps";
+import {
+  STEP_KINDS,
+  type ChildThread,
+  type Step,
+  type StepKind,
+} from "./steps";
 
 /** Thinking shorter than this is left off the flow; the ribbon still counts it. */
 export const THOUGHT_SHOWN_MS = 2_000;
@@ -129,6 +134,8 @@ export interface RunNode {
   children: readonly RunNode[];
   /** How many steps a folded run holds. */
   count: number | null;
+  /** The thread this row opens, when it stands for one. */
+  thread: ChildThread | null;
 }
 
 function stepNode(step: Step, now: number): RunNode {
@@ -147,6 +154,7 @@ function stepNode(step: Step, now: number): RunNode {
     step,
     children: step.children.length > 0 ? runsOf(step.children, now) : [],
     count: null,
+    thread: null,
   };
 }
 
@@ -165,15 +173,38 @@ function groupNode(id: string, steps: readonly Step[], now: number): RunNode {
     step: null,
     children: steps.map((step) => stepNode(step, now)),
     count: steps.length,
+    thread: null,
   };
 }
 
-/** Steps as rows of the waterfall. */
-export function runsOf(steps: readonly Step[], now: number): RunNode[] {
-  return flowOf(steps, now).map((item) =>
+const threadNode = (thread: ChildThread): RunNode => ({
+  id: thread.id,
+  kind: "agent",
+  icon: "MessageSquare",
+  title: thread.title,
+  place: "Thread",
+  startedAt: thread.startedAt,
+  endedAt: thread.endedAt,
+  status: thread.status,
+  step: null,
+  children: [],
+  count: null,
+  thread,
+});
+
+/** Steps, and the threads started alongside them, as rows of the waterfall. */
+export function runsOf(
+  steps: readonly Step[],
+  now: number,
+  threads: readonly ChildThread[] = [],
+): RunNode[] {
+  const rows = flowOf(steps, now).map((item) =>
     item.type === "group"
       ? groupNode(item.id, item.steps, now)
       : stepNode(item.step, now),
+  );
+  return [...rows, ...threads.map(threadNode)].sort(
+    (a, b) => a.startedAt - b.startedAt,
   );
 }
 

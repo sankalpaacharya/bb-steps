@@ -1,7 +1,12 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 
 import { rpcContract, stepsTag } from "./lib/rpc";
-import { buildThreadSteps, focusTurn, outputOfRow } from "./lib/steps";
+import {
+  buildThreadSteps,
+  focusTurn,
+  outputOfRow,
+  type ChildThread,
+} from "./lib/steps";
 
 /** Thread statuses with a turn under way. */
 const RUNNING_STATUSES = new Set(["active", "starting", "pending"]);
@@ -28,6 +33,12 @@ type TimelineRead = Extract<
   { rows: unknown }
 >;
 type TimelineRow = TimelineRead["rows"][number];
+
+/** How far down a thread's children are followed. */
+const MAX_THREAD_DEPTH = 4;
+
+/** History read for one thread opened from another. */
+const THREAD_RUN_SEGMENTS = 41;
 
 /** Enough pages for the longest Steps list, should a thread read short. */
 const MAX_TIMELINE_PAGES = 40;
@@ -71,11 +82,53 @@ export default async function plugin(bb: BbPluginApi) {
     return { rows: merged, hasOlder: older !== null };
   };
 
+  /** Which thread started which, so a child's change refreshes its parents. */
+  const parentOf = new Map<string, string>();
+
+  /** Every thread under this one, a few levels deep, as Agent Graph walks them. */
+  const readDescendants = async (threadId: string): Promise<ChildThread[]> => {
+    const found: ChildThread[] = [];
+    let frontier = [threadId];
+    for (let depth = 0; depth < MAX_THREAD_DEPTH && frontier.length > 0; depth += 1) {
+      const levels = await Promise.all(
+        frontier.map(async (parentThreadId) => ({
+          parentThreadId,
+          children: await bb.sdk.threads.list({
+            parentThreadId,
+            includeHidden: true,
+            limit: 100,
+          }),
+        })),
+      );
+      frontier = [];
+      for (const { parentThreadId, children } of levels) {
+        for (const child of children) {
+          parentOf.set(child.id, parentThreadId);
+          frontier.push(child.id);
+          const running = RUNNING_STATUSES.has(child.status);
+          found.push({
+            id: child.id,
+            title: child.title ?? child.titleFallback ?? "Untitled thread",
+            status: running
+              ? "running"
+              : child.status === "error"
+                ? "error"
+                : "done",
+            startedAt: child.createdAt,
+            endedAt: running ? null : child.updatedAt,
+          });
+        }
+      }
+    }
+    return found;
+  };
+
   bb.rpc.register(rpcContract, {
     thread_steps: async ({ threadId, turns, turnId }) => {
-      const [thread, timeline] = await Promise.all([
+      const [thread, timeline, descendants] = await Promise.all([
         bb.sdk.threads.get({ threadId }),
         readTimeline(threadId, turns + 1),
+        readDescendants(threadId),
       ]);
       const steps = buildThreadSteps(timeline.rows, {
         threadId,
@@ -83,7 +136,21 @@ export default async function plugin(bb: BbPluginApi) {
         now: Date.now(),
         hasOlder: timeline.hasOlder,
       });
-      return focusTurn(steps, turnId, turns);
+      return focusTurn(steps, turnId, turns, descendants);
+    },
+
+    thread_run: async ({ threadId }) => {
+      const [thread, timeline] = await Promise.all([
+        bb.sdk.threads.get({ threadId }),
+        readTimeline(threadId, THREAD_RUN_SEGMENTS),
+      ]);
+      const { turns } = buildThreadSteps(timeline.rows, {
+        threadId,
+        running: RUNNING_STATUSES.has(thread.status),
+        now: Date.now(),
+        hasOlder: timeline.hasOlder,
+      });
+      return { steps: [...turns].reverse().flatMap((turn) => turn.steps) };
     },
 
     step_output: async ({ threadId, stepId, turns }) => {
@@ -101,7 +168,12 @@ export default async function plugin(bb: BbPluginApi) {
       if (types?.length && types.every((type) => DELTA_EVENTS.has(type)))
         return;
       if (event.id === undefined) return;
-      changedThreads.add(event.id);
+      for (
+        let id: string | undefined = event.id;
+        id !== undefined && !changedThreads.has(id);
+        id = parentOf.get(id)
+      )
+        changedThreads.add(id);
       stepsTimer ??= setTimeout(() => {
         stepsTimer = null;
         const tags = [...changedThreads].map(stepsTag);

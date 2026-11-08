@@ -14,6 +14,7 @@ type ThreadListener = (event: never) => void;
 async function load(
   options: {
     timeline?: { status: string; rows: unknown[]; pages?: unknown[] };
+    children?: Record<string, unknown[]>;
   } = {},
 ) {
   const listeners = new Set<ThreadListener>();
@@ -21,6 +22,8 @@ async function load(
     pluginId: "steps",
     sdk: {
       threads: {
+        list: async (args) =>
+          (options.children?.[args?.parentThreadId ?? ""] ?? []) as never,
         get: async ({ threadId }: { threadId: string }) =>
           ({ id: threadId, status: options.timeline?.status ?? "idle" }) as never,
         timeline: async () =>
@@ -170,5 +173,41 @@ describe("thread steps", () => {
     expect(listeners.size).toBe(1);
     await harness.dispose();
     expect(listeners.size).toBe(0);
+  });
+
+  it("finds threads started under this one at any depth, for the turn that started them", async () => {
+    const child = (id: string, createdAt: number) => ({
+      id,
+      title: id,
+      titleFallback: null,
+      status: "idle",
+      createdAt,
+      updatedAt: createdAt + 5,
+    });
+    const { harness } = await load({
+      timeline: { status: "idle", rows },
+      children: {
+        thr_a: [child("crew", 1_500)],
+        crew: [child("worker", 1_600)],
+      },
+    });
+    const steps = (await harness.callRpc("thread_steps", {
+      threadId: "thr_a",
+      turns: 10,
+      turnId: null,
+    })) as { children: { id: string; status: string }[] };
+    expect(steps.children.map((thread) => thread.id)).toEqual(["crew", "worker"]);
+    expect(steps.children[0]!.status).toBe("done");
+  });
+
+  it("refreshes the parent when a child thread changes", async () => {
+    vi.useFakeTimers();
+    const { harness, since, threadChanged } = await load({
+      children: { thr_a: [{ id: "kid", title: "kid", status: "active", createdAt: 1, updatedAt: 2 }] },
+    });
+    await harness.callRpc("thread_steps", { threadId: "thr_a", turns: 1, turnId: null });
+    threadChanged("kid", ["item/started"]);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(since.invalidations().at(-1)).toEqual(["steps:kid", "steps:thr_a"]);
   });
 });
