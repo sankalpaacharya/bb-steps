@@ -259,6 +259,21 @@ describe("the steps tab", () => {
     expect(screen.getByText("Total")).toBeTruthy();
   });
 
+  it("shimmers only the row that is still running", async () => {
+    renderSteps(() =>
+      buildThreadSteps(
+        [
+          prompt("t1", 0, "go"),
+          command("t1", 1, 2, "ls"),
+          work("t1", 3, null, "file-read", { path: "/repo/a.ts" }),
+        ],
+        { threadId: "thr", running: true, now: at(5), hasOlder: false },
+      ),
+    );
+    expect((await screen.findByText("a.ts")).className).toContain("animate-shine");
+    expect(screen.getByText("ls").className).not.toContain("animate-shine");
+  });
+
   it("says when there are no steps yet", async () => {
     renderSteps(() => ({ ...ready(), turns: [] }));
     expect(

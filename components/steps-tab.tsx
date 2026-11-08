@@ -24,7 +24,6 @@ import {
   STEP_KIND_IDS,
   extendTo,
   type ChildThread,
-  type Step,
   type StepKind,
   type TurnSteps,
 } from "@/lib/steps";
@@ -129,31 +128,12 @@ function TimeAxis({ wall }: { wall: number }) {
   );
 }
 
-/** What this message is doing right now, one quiet line under its title. */
-function NowLine({ step, now }: { step: Step | null; now: number }) {
-  if (step === null) return null;
-  return (
-    <p className="m-0 flex items-center gap-1.5 text-xs text-muted-foreground">
-      <Icon
-        name="Spinner"
-        aria-hidden
-        className="size-3 shrink-0 animate-spin motion-reduce:animate-none"
-      />
-      <span className="min-w-0 truncate">{step.target || STEP_KINDS[step.kind].label}</span>
-      <span className="shrink-0 tabular-nums">
-        {formatElapsed(Math.max(now - step.startedAt, 0))}
-      </span>
-    </p>
-  );
-}
-
 function TurnBody({
   turn,
   now,
   openFile,
   threadId,
   turns,
-  current,
   threads,
 }: {
   turn: TurnSteps;
@@ -161,8 +141,6 @@ function TurnBody({
   openFile: OpenFile;
   threadId: string;
   turns: number;
-  /** The step under way, when this message is the one running. */
-  current: Step | null;
   /** Threads this message started. */
   threads: readonly ChildThread[];
 }) {
@@ -202,7 +180,6 @@ function TurnBody({
         <p className="m-0 truncate text-[13px] leading-5 font-medium text-foreground">
           {messageText(turn.prompt)}
         </p>
-        <NowLine step={current} now={now} />
         <div className="-mx-1.5">
           <Stats
             total={Math.max(ownEndedAt - turn.startedAt, 0)}
@@ -480,7 +457,6 @@ export function StepsTab({ threadId }: ExperimentalThreadActionTabProps) {
               openFile={openFile}
               threadId={threadId}
               turns={turns}
-              current={focused.running ? steps.now : null}
               threads={steps.children}
             />
           )}

@@ -54,11 +54,6 @@ const lengthOfRun = (run: RunNode, now: number): number =>
     ? Math.max((run.endedAt ?? now) - run.startedAt, 0)
     : run.children.reduce((sum, child) => sum + lengthOfRun(child, now), 0);
 
-const tileStyle = (kind: StepKind): CSSProperties | undefined =>
-  kind === "think"
-    ? undefined
-    : { backgroundColor: STEP_KINDS[kind].color, color: "white" };
-
 function Node({
   kind,
   icon,
@@ -71,24 +66,18 @@ function Node({
   failed?: boolean;
 }) {
   return (
-    <span
+    <Icon
+      name={running ? "Spinner" : icon}
+      fallback="Zap"
       aria-hidden
       className={cn(
-        "grid size-[18px] shrink-0 place-items-center rounded-[5px]",
-        kind === "think" && "bg-muted text-muted-foreground",
-        failed && "ring-2 ring-destructive-text",
+        "size-4 shrink-0",
+        kind === "think" && "text-muted-foreground",
+        failed && "text-destructive-text",
+        running && "animate-spin motion-reduce:animate-none",
       )}
-      style={tileStyle(kind)}
-    >
-      <Icon
-        name={running ? "Spinner" : icon}
-        fallback="Zap"
-        className={cn(
-          "size-3",
-          running && "animate-spin motion-reduce:animate-none",
-        )}
-      />
-    </span>
+      style={kind === "think" || failed ? undefined : { color: STEP_KINDS[kind].color }}
+    />
   );
 }
 
@@ -238,14 +227,14 @@ function Bars({ row, context }: { row: VisibleRun; context: RowContext }) {
           ? "bg-destructive-text"
           : running
             ? "animate-pulse bg-primary motion-reduce:animate-none"
-            : "bg-foreground/30 group-hover/run:bg-foreground/55",
+            : "bg-foreground/40 group-hover/run:bg-foreground/60",
       )}
       style={{ left: `${start}%`, width: `${end - start}%` }}
     />
   );
   return (
     <span className="relative block h-full">
-      <span className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2">
+      <span className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2">
         {node.count === null ? (
           segment(from, to)
         ) : (
@@ -337,7 +326,14 @@ function RunRow({ row, context }: { row: VisibleRun; context: RowContext }) {
             running={node.status === "running"}
             failed={node.status === "error"}
           />
-          <span className="truncate text-[13px] text-foreground">{node.title}</span>
+          <span
+            className={cn(
+              "truncate text-[13px] text-foreground",
+              node.status === "running" && "animate-shine",
+            )}
+          >
+            {node.title}
+          </span>
           <span
             className={cn(
               "ml-auto shrink-0",
