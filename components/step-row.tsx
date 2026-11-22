@@ -15,9 +15,8 @@ import {
   STEP_KINDS,
   type ChildThread,
   type Step,
-  type StepKind,
 } from "@/lib/steps";
-import { FOCUS_RING, PANEL_ROW } from "@/lib/styles";
+import { FOCUS_RING, PANEL_ROW, durationTone } from "@/lib/styles";
 import { formatElapsed, formatOffset } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Collapsible, Disclosure } from "./disclosure";
@@ -30,7 +29,6 @@ export interface RowContext {
   threadId: string;
   turns: number;
   turnStartedAt: number;
-  turnEndedAt: number;
   now: number;
   expanded: ReadonlySet<string>;
   onToggle: (id: string) => void;
@@ -54,9 +52,6 @@ function Code({ content, path }: { content: string; path: string }) {
 const inputPath = (step: Step): string =>
   step.kind === "run" || step.path === null ? "command.sh" : step.path;
 
-/** Name column and timeline column of a waterfall row, and of its time axis. */
-export const WATERFALL_COLUMNS =
-  "grid grid-cols-[minmax(0,min(56%,18rem))_minmax(0,1fr)_4rem]";
 
 /** Each level of nesting steps right by this. */
 const INDENT = 16;
@@ -68,12 +63,10 @@ const lengthOfRun = (run: RunNode, now: number): number =>
     : run.children.reduce((sum, child) => sum + lengthOfRun(child, now), 0);
 
 function Node({
-  kind,
   icon,
   running = false,
   failed = false,
 }: {
-  kind: StepKind;
   icon: string;
   running?: boolean;
   failed?: boolean;
@@ -85,11 +78,9 @@ function Node({
       aria-hidden
       className={cn(
         "size-4 shrink-0",
-        kind === "think" && "text-muted-foreground",
-        failed && "text-destructive-text",
+        failed ? "text-destructive-text" : "text-muted-foreground",
         running && "animate-spin motion-reduce:animate-none",
       )}
-      style={kind === "think" || failed ? undefined : { color: STEP_KINDS[kind].color }}
     />
   );
 }
@@ -176,9 +167,6 @@ const clockTime = (time: number): string =>
 function StepFacts({ step }: { step: Step }) {
   return (
     <p className="m-0 inline-flex flex-wrap items-center gap-x-1.5 text-2xs tabular-nums text-muted-foreground">
-      {step.status === "done" ? (
-        <Icon name="Check" className="size-3 text-success-foreground" aria-hidden />
-      ) : null}
       <span>{STATUS_WORD[step.status]}</span>
       <span>
         {clockTime(step.startedAt)}
@@ -218,55 +206,6 @@ function StepDetail({ step, context }: { step: Step; context: RowContext }) {
         </button>
       )}
     </div>
-  );
-}
-
-/** A run's bar at its real place on the turn's time axis. */
-function Bars({ row, context }: { row: VisibleRun; context: RowContext }) {
-  const { node } = row;
-  const { now, turnStartedAt, turnEndedAt } = context;
-  const wall = Math.max(turnEndedAt - turnStartedAt, 1);
-  const percent = (time: number) =>
-    Math.min(Math.max(((time - turnStartedAt) / wall) * 100, 0), 100);
-  const from = percent(node.startedAt);
-  const to = percent(node.endedAt ?? now);
-  const running = node.status === "running";
-  const segment = (start: number, end: number, key?: string) => (
-    <span
-      key={key}
-      className={cn(
-        "absolute inset-y-0 min-w-0.5 rounded-[2px]",
-        node.status === "error"
-          ? "bg-destructive-text"
-          : running
-            ? "animate-shine-icon bg-primary"
-            : "bg-foreground/40 group-hover/run:bg-foreground/60",
-      )}
-      style={{ left: `${start}%`, width: `${end - start}%` }}
-    />
-  );
-  return (
-    <span className="relative block h-full">
-      <span className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2">
-        {node.count === null ? (
-          segment(from, to)
-        ) : (
-          <>
-            <span
-              className="absolute inset-y-0 rounded-[2px] bg-foreground/[0.07]"
-              style={{ left: `${from}%`, width: `${to - from}%` }}
-            />
-            {node.children.map((child) =>
-              segment(
-                percent(child.startedAt),
-                percent(child.endedAt ?? now),
-                child.id,
-              ),
-            )}
-          </>
-        )}
-      </span>
-    </span>
   );
 }
 
@@ -324,8 +263,7 @@ function RunRow({ row, context }: { row: VisibleRun; context: RowContext }) {
         onClick={() => context.onToggle(node.id)}
         className={cn(
           PANEL_ROW,
-          WATERFALL_COLUMNS,
-          "group/run h-7 items-stretch rounded-md px-2",
+          "group/run grid h-7 grid-cols-[minmax(0,1fr)_4rem] items-stretch rounded-md px-2",
           open && "bg-accent",
         )}
       >
@@ -334,14 +272,14 @@ function RunRow({ row, context }: { row: VisibleRun; context: RowContext }) {
           style={{ paddingLeft: indent }}
         >
           <Node
-            kind={node.kind}
             icon={node.icon}
             running={node.status === "running"}
             failed={node.status === "error"}
           />
           <span
             className={cn(
-              "truncate text-[13px] text-foreground",
+              "truncate text-[13px]",
+              node.count === null ? "text-foreground" : "text-muted-foreground",
               node.status === "running" && "animate-shine",
             )}
           >
@@ -359,8 +297,7 @@ function RunRow({ row, context }: { row: VisibleRun; context: RowContext }) {
             <Disclosure open={open} />
           </span>
         </span>
-        <Bars row={row} context={context} />
-        <span className="self-center text-right text-xs tabular-nums text-muted-foreground">
+        <span className={cn("self-center text-right text-xs tabular-nums", durationTone(length))}>
           {formatElapsed(length)}
         </span>
       </button>
@@ -380,27 +317,26 @@ function RunRow({ row, context }: { row: VisibleRun; context: RowContext }) {
   );
 }
 
-/**
- * The turn as a waterfall: each step has its bar on one shared timeline, so
- * slow and parallel steps show. Open rows show their input, output and steps.
- */
+/** Steps as rows, newest first. Open rows show their input, output and steps. */
 export function StepFlow({
   steps,
   threads,
   context,
   depth = 0,
+  running,
 }: {
   steps: readonly Step[];
-  /** Threads started alongside these steps, drawn in time order among them. */
+  /** Threads started alongside these steps, listed in time order among them. */
   threads?: readonly ChildThread[];
   context: RowContext;
   depth?: number;
+  /** Only the top rows still running, or only those that are not. */
+  running?: boolean;
 }) {
-  const rows = visibleRuns(
-    runsOf(steps, context.now, threads),
-    context.expanded,
-    depth,
+  const nodes = runsOf(steps, context.now, threads).filter(
+    (node) => running === undefined || (node.status === "running") === running,
   );
+  const rows = visibleRuns(nodes, context.expanded, depth);
   return (
     <ol className="m-0 flex flex-col p-0">
       {rows.map((row) => (

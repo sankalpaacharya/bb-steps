@@ -5,6 +5,7 @@ import {
   dayLabel,
   flowOf,
   groupTitle,
+  messageFrom,
   messageText,
   runsOf,
   stepPlace,
@@ -38,36 +39,39 @@ const shape = (items: ReturnType<typeof flowOf>) =>
   );
 
 describe("the step flow", () => {
-  it("folds three or more of the same action in a row into one card", () => {
+  it("drops short thoughts and replies, and folds quick steps side by side", () => {
     const items = flowOf(
-      [step("a"), step("b"), step("c"), step("r", { kind: "run", verb: "Ran" })],
+      [
+        step("a"),
+        thought("t1", 500),
+        step("b", { kind: "run", verb: "Ran" }),
+        step("slow", { endedAt: 8_000 }),
+        thought("t2", 22_000),
+        step("c"),
+      ],
       0,
     );
-    expect(shape(items)).toEqual(["group:a,b,c", "step:r"]);
+    expect(shape(items)).toEqual(["group:a,b", "step:slow", "step:t2", "step:c"]);
     const [group] = items;
     expect(group?.type === "group" ? groupTitle(group.steps) : null).toBe(
-      "Read 3 files",
+      "2 quick steps",
     );
   });
 
-  it("keeps two in a row as their own cards", () => {
-    expect(shape(flowOf([step("a"), step("b")], 0))).toEqual(["step:a", "step:b"]);
-  });
-
-  it("keeps every thought in the flow, each one ending a run", () => {
+  it("never folds a running, failed or subagent step", () => {
     const items = flowOf(
-      [step("a"), thought("t1", 500), step("b"), step("c"), thought("t2", 22_000), step("d")],
+      [
+        step("a"),
+        step("e", { status: "error" }),
+        step("b"),
+        step("agent", { kind: "agent", verb: "Subagent", children: [step("x")] }),
+        step("c"),
+        step("d", { status: "running", endedAt: null }),
+        thought("live", 0),
+      ],
       0,
-    );
-    expect(shape(items)).toEqual(["step:a", "thought:t1", "step:b", "step:c", "thought:t2", "step:d"]);
-  });
-
-  it("never folds the running step away", () => {
-    const items = flowOf(
-      [step("a"), step("b"), step("c"), step("d", { status: "running", endedAt: null })],
-      0,
-    );
-    expect(shape(items)).toEqual(["group:a,b,c", "step:d"]);
+    ).map((item) => (item.type === "group" ? "group" : item.step.id));
+    expect(items).toEqual(["a", "e", "b", "agent", "c", "d"]);
   });
 
   it("says where a step happened", () => {
@@ -92,33 +96,28 @@ describe("the step flow", () => {
       target: "Find it",
       children: [step("x"), step("y")],
     });
-    const runs = runsOf([step("a"), step("b"), step("c"), agent], 0);
+    const runs = runsOf([step("a"), step("b"), step("c"), { ...agent, startedAt: 1 }], 0);
     expect(runs.map((run) => [run.title, run.count])).toEqual([
-      ["Read 3 files", 3],
       ["Find it", null],
+      ["3 quick steps", 3],
     ]);
     const rows = (open: string[]) =>
       visibleRuns(runs, new Set(open)).map(
         ({ node, depth }) => `${depth}:${node.title}`,
       );
-    expect(rows([])).toEqual(["0:Read 3 files", "0:Find it"]);
-    expect(rows(["agent"])).toEqual([
-      "0:Read 3 files",
-      "0:Find it",
-      "1:x.ts",
-      "1:y.ts",
-    ]);
+    expect(rows([])).toEqual(["0:Find it", "0:3 quick steps"]);
+    expect(rows(["agent"])).toEqual(["0:Find it", "1:2 quick steps", "0:3 quick steps"]);
   });
 });
 
 describe("threads in the waterfall", () => {
   it("sits among the steps in time order, and opens as a thread", () => {
     const runs = runsOf(
-      [step("a", { startedAt: 0 }), step("b", { kind: "run", verb: "Ran", startedAt: 20 })],
+      [step("a", { endedAt: 9_000 }), step("b", { kind: "run", verb: "Ran", startedAt: 20, endedAt: 9_000 })],
       0,
       [{ id: "w", title: "Worker", status: "running", startedAt: 10, endedAt: null }],
     );
-    expect(runs.map((run) => run.title)).toEqual(["a.ts", "Worker", "b.ts"]);
+    expect(runs.map((run) => run.title)).toEqual(["b.ts", "Worker", "a.ts"]);
     expect(runs[1]!.thread?.id).toBe("w");
   });
 });
@@ -130,6 +129,8 @@ describe("the message list", () => {
     expect(messageText("dude /pstack:unslop this")).toBe("dude /pstack:unslop this");
     expect(messageText("/Users/sam/file.ts is broken")).toBe("/Users/sam/file.ts is broken");
     expect(messageText("/pstack:unslop")).toBe("unslop");
+    expect(messageText("[bb message from thread:thr_abc]\n\n# Fix the tab\nmore")).toBe("Fix the tab");
+    expect(messageFrom("[bb message from thread:thr_abc] hi")).toBe("thr_abc");
   });
 
   it("names the day a message was sent", () => {

@@ -21,8 +21,6 @@ interface StepKindInfo {
    * parallel steps are never counted twice.
    */
   rank: number;
-  /** A fill that reads on light and dark panels alike. */
-  color: string;
   /** How the expanded row shows the step's detail. */
   detail: "code" | "prose";
   /** The host icon on the step's node. */
@@ -36,7 +34,6 @@ export const STEP_KINDS: Record<StepKind, StepKindInfo> = {
   wait: {
     label: "Waiting on you",
     rank: 0,
-    color: "oklch(0.62 0.15 45)",
     detail: "prose",
     icon: "MessageSquare",
     type: "Question",
@@ -44,15 +41,13 @@ export const STEP_KINDS: Record<StepKind, StepKindInfo> = {
   edit: {
     label: "Writing",
     rank: 1,
-    color: "oklch(0.62 0.15 80)",
     detail: "code",
     icon: "EditFile",
     type: "Edit",
   },
   run: {
-    label: "Running",
+    label: "Commands",
     rank: 2,
-    color: "oklch(0.62 0.15 150)",
     detail: "code",
     icon: "Terminal",
     type: "Command",
@@ -60,7 +55,6 @@ export const STEP_KINDS: Record<StepKind, StepKindInfo> = {
   read: {
     label: "Reading",
     rank: 3,
-    color: "oklch(0.62 0.15 220)",
     detail: "code",
     icon: "FileText",
     type: "Read",
@@ -68,7 +62,6 @@ export const STEP_KINDS: Record<StepKind, StepKindInfo> = {
   web: {
     label: "Web",
     rank: 4,
-    color: "oklch(0.62 0.15 285)",
     detail: "code",
     icon: "Browser",
     type: "Web",
@@ -76,7 +69,6 @@ export const STEP_KINDS: Record<StepKind, StepKindInfo> = {
   agent: {
     label: "Subagents",
     rank: 5,
-    color: "oklch(0.62 0.15 340)",
     detail: "prose",
     icon: "UserRound",
     type: "Subagent",
@@ -84,7 +76,6 @@ export const STEP_KINDS: Record<StepKind, StepKindInfo> = {
   tool: {
     label: "Tools",
     rank: 6,
-    color: "oklch(0.58 0.03 250)",
     detail: "code",
     icon: "ToolCase",
     type: "Tool",
@@ -92,7 +83,6 @@ export const STEP_KINDS: Record<StepKind, StepKindInfo> = {
   think: {
     label: "Thinking",
     rank: 7,
-    color: "currentColor",
     detail: "prose",
     icon: "Brain",
     type: "Thought",
@@ -866,18 +856,45 @@ function groupTurns(rows: readonly unknown[], running: boolean): Group[] {
   return groups;
 }
 
+const isBackground = (row: Row): boolean =>
+  row.workKind === "delegation" &&
+  (row.raw as { background?: unknown }).background === true;
+
+/**
+ * A background subagent's row completes when it launches, and its steps keep
+ * coming after. The newest `count` of them are the ones bb says still run.
+ */
+function stillRunning(steps: Step[], group: Group, count: number): Step[] {
+  if (count <= 0) return steps;
+  const launched = new Set(group.rows.filter(isBackground).map((row) => row.id));
+  const running = new Set(
+    steps
+      .filter((step) => launched.has(step.id))
+      .slice(-count)
+      .map((step) => step.id),
+  );
+  return steps.map((step) =>
+    running.has(step.id) ? { ...step, status: "running", endedAt: null } : step,
+  );
+}
+
 function buildTurn(
   group: Group,
   running: boolean,
   threadRunning: boolean,
   now: number,
+  backgroundAgents = 0,
 ): TurnSteps | null {
-  const steps = group.rows
-    .flatMap((row) => {
-      const step = toStep(row, threadRunning);
-      return step === null ? [] : [step];
-    })
-    .sort((a, b) => a.startedAt - b.startedAt);
+  const steps = stillRunning(
+    group.rows
+      .flatMap((row) => {
+        const step = toStep(row, threadRunning);
+        return step === null ? [] : [step];
+      })
+      .sort((a, b) => a.startedAt - b.startedAt),
+    group,
+    backgroundAgents,
+  );
   const starts = [
     group.prompt?.startedAt,
     group.turn?.startedAt,
@@ -920,12 +937,26 @@ function currentStep(steps: readonly Step[]): Step | null {
 /** A thread's timeline rows as steps per turn, and where each turn's time went. */
 export function buildThreadSteps(
   rows: readonly unknown[],
-  options: { threadId: string; running: boolean; now: number; hasOlder: boolean },
+  options: {
+    threadId: string;
+    running: boolean;
+    now: number;
+    hasOlder: boolean;
+    /** Background subagents bb counts as still running. */
+    backgroundAgents?: number;
+  },
 ): ThreadSteps {
   const groups = groupTurns(rows, options.running);
   const turns = groups.flatMap((group, index) => {
-    const live = options.running && index === groups.length - 1;
-    const turn = buildTurn(group, live, options.running, options.now);
+    const newest = index === groups.length - 1;
+    const live = options.running && newest;
+    const turn = buildTurn(
+      group,
+      live,
+      options.running,
+      options.now,
+      newest ? options.backgroundAgents : 0,
+    );
     return turn === null ? [] : [turn];
   });
   const newest = turns.at(-1);

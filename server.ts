@@ -135,6 +135,9 @@ export default async function plugin(bb: BbPluginApi) {
         running: RUNNING_STATUSES.has(thread.status),
         now: Date.now(),
         hasOlder: timeline.hasOlder,
+        backgroundAgents:
+          (thread as { activeBackgroundAgentCount?: number })
+            .activeBackgroundAgentCount ?? 0,
       });
       return focusTurn(
         { ...steps, turns: steps.turns.slice(0, MAX_TURNS) },

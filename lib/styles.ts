@@ -5,3 +5,13 @@ export const FOCUS_RING =
 export const PANEL_ROW = `flex w-full cursor-pointer rounded-md text-left hover:bg-accent/60 ${FOCUS_RING}`;
 
 export const HEADER_ACTION = `grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-state-hover hover:text-foreground aria-expanded:bg-state-active aria-expanded:text-foreground ${FOCUS_RING}`;
+
+/** How long something took, as a colour: grey, then foreground, amber, red. */
+export const durationTone = (ms: number): string =>
+  ms >= 300_000
+    ? "text-destructive-text"
+    : ms >= 60_000
+      ? "text-primary"
+      : ms >= 10_000
+        ? "text-foreground"
+        : "text-muted-foreground";

@@ -5,47 +5,51 @@ import {
   type StepKind,
 } from "./steps";
 
-/** This many steps in a row with the same verb fold into one card. */
-export const GROUP_MIN = 3;
+/** A thought or reply shorter than this drops out; its time is in Thinking. */
+export const SHORT_THOUGHT_MS = 10_000;
+/** Steps quicker than this, two or more in a row, fold into one row. */
+export const QUICK_MS = 5_000;
 
 export type FlowItem =
   | { type: "step"; step: Step }
-  | { type: "group"; id: string; steps: readonly Step[] }
-  | { type: "thought"; step: Step };
+  | { type: "group"; id: string; steps: readonly Step[] };
 
 const lengthOf = (step: Step, now: number): number =>
   Math.max((step.endedAt ?? now) - step.startedAt, 0);
 
-const sameRun = (a: Step, b: Step): boolean =>
-  a.kind === b.kind && a.verb === b.verb && a.children.length === 0;
+const isQuick = (step: Step, now: number): boolean =>
+  step.status === "done" &&
+  step.kind !== "think" &&
+  step.kind !== "agent" &&
+  step.children.length === 0 &&
+  lengthOf(step, now) < QUICK_MS;
 
 /**
- * Steps in order as cards to read top to bottom: long thoughts become notes
- * between cards, short ones drop out, and runs of the same action fold into
- * one card. A running step never folds, so what is happening now stays in view.
+ * The steps worth a row: short thoughts and replies drop out, and quick steps
+ * side by side fold into one. Running, failed and slow steps keep their own row.
  */
 export function flowOf(steps: readonly Step[], now: number): FlowItem[] {
   const items: FlowItem[] = [];
   let run: Step[] = [];
   const flush = () => {
-    if (run.length >= GROUP_MIN)
+    if (run.length > 1)
       items.push({ type: "group", id: `group:${run[0]!.id}`, steps: run });
     else for (const step of run) items.push({ type: "step", step });
     run = [];
   };
   for (const step of steps) {
-    if (step.kind === "think") {
-      flush();
-      items.push({ type: "thought", step });
+    if (
+      step.kind === "think" &&
+      step.status !== "running" &&
+      lengthOf(step, now) < SHORT_THOUGHT_MS
+    )
+      continue;
+    if (isQuick(step, now)) {
+      run.push(step);
       continue;
     }
-    const last = run.at(-1);
-    if (
-      last !== undefined &&
-      (!sameRun(last, step) || step.status === "running")
-    )
-      flush();
-    run.push(step);
+    flush();
+    items.push({ type: "step", step });
   }
   flush();
   return items;
@@ -84,25 +88,9 @@ export function stepPlace(step: Step): string {
   return step.verb;
 }
 
-const GROUP_NOUNS: Record<string, [string, string]> = {
-  Read: ["file", "files"],
-  Viewed: ["image", "images"],
-  Edited: ["file", "files"],
-  Created: ["file", "files"],
-  Deleted: ["file", "files"],
-  Ran: ["command", "commands"],
-  Searched: ["search", "searches"],
-  Listed: ["folder", "folders"],
-  Fetched: ["page", "pages"],
-};
-
-/** A folded run's title: "Read 6 files", "Ran 4 commands". */
-export function groupTitle(steps: readonly Step[]): string {
-  const verb = steps[0]?.verb ?? "";
-  const nouns = GROUP_NOUNS[verb];
-  if (nouns === undefined) return `${verb} ${steps.length} times`;
-  return `${verb} ${steps.length} ${steps.length === 1 ? nouns[0] : nouns[1]}`;
-}
+/** A folded run's title: "3 quick steps". */
+export const groupTitle = (steps: readonly Step[]): string =>
+  `${steps.length} quick steps`;
 
 /** Actions within a kind that read better with their own icon. */
 const VERB_ICONS: Record<string, string> = {
@@ -164,7 +152,7 @@ function groupNode(id: string, steps: readonly Step[], now: number): RunNode {
   return {
     id,
     kind: first.kind,
-    icon: iconOf(first),
+    icon: "Layers",
     title: groupTitle(steps),
     place: steps.map((step) => step.target).join(", "),
     startedAt: first.startedAt,
@@ -192,7 +180,7 @@ const threadNode = (thread: ChildThread): RunNode => ({
   thread,
 });
 
-/** Steps, and the threads started alongside them, as rows of the waterfall. */
+/** Steps, and the threads started alongside them, as rows, newest first. */
 export function runsOf(
   steps: readonly Step[],
   now: number,
@@ -204,7 +192,7 @@ export function runsOf(
       : stepNode(item.step, now),
   );
   return [...rows, ...threads.map(threadNode)].sort(
-    (a, b) => a.startedAt - b.startedAt,
+    (a, b) => b.startedAt - a.startedAt,
   );
 }
 
@@ -229,12 +217,26 @@ export function visibleRuns(
 }
 
 const LEADING_COMMANDS = /^(?:\/[\w:-]+(?:\s+|$))+/;
+const FROM_THREAD = /^\s*\[bb message from thread:(thr_\w+)\]\s*/;
 
-/** A message's own words, without the skill commands in front; a bare command names itself. */
+/** The thread a message came from, when another agent sent it. */
+export const messageFrom = (prompt: string): string | null =>
+  FROM_THREAD.exec(prompt)?.[1] ?? null;
+
+/**
+ * A message's own words on one line: without the thread it came from, the
+ * skill commands in front, or a heading's `#`. A bare command names itself.
+ */
 export function messageText(prompt: string): string {
-  const commands = LEADING_COMMANDS.exec(prompt)?.[0] ?? "";
-  const text = prompt.slice(commands.length).trim();
-  return text || commands.trim().split(":").at(-1)!.replace(/^\//, "");
+  const body = prompt.replace(FROM_THREAD, "");
+  const commands = LEADING_COMMANDS.exec(body)?.[0] ?? "";
+  const line =
+    body
+      .slice(commands.length)
+      .split("\n")
+      .map((text) => text.replace(/^#+\s*/, "").trim())
+      .find((text) => text !== "") ?? "";
+  return line || commands.trim().split(":").at(-1)!.replace(/^\//, "");
 }
 
 const startOfDay = (time: number): number =>
