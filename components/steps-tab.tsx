@@ -15,6 +15,8 @@ import {
   type ExperimentalThreadActionTabProps,
 } from "@get-bb/plugin-sdk/app";
 
+import { useArmada } from "@/hooks/use-armada";
+import { activeGroups, isRunning } from "@/lib/active";
 import { useLiveNow } from "@/lib/clock";
 import { MAX_TURNS, rpcContract } from "@/lib/rpc";
 import { dayLabel, messageFrom, messageText, runsOf } from "@/lib/step-flow";
@@ -30,6 +32,7 @@ import {
 import { FOCUS_RING, PANEL_ROW, durationTone } from "@/lib/styles";
 import { formatElapsed } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { ActivePicker } from "./active-picker";
 import { Note } from "./section";
 import { Icon } from "./ui/icon";
 import { StepFlow, type OpenFile, type RowContext } from "./step-row";
@@ -431,8 +434,12 @@ function AllThreads({
  * A side panel tab with what the thread is doing now and where the time went:
  * the running message, or the newest, with the others in a menu.
  */
-export function StepsTab({ threadId }: ExperimentalThreadActionTabProps) {
+export function StepsTab({ threadId: own }: ExperimentalThreadActionTabProps) {
   const visible = experimental_useTabVisible();
+  const [inspected, setInspected] = useState<{ own: string; threadId: string } | null>(
+    null,
+  );
+  const threadId = inspected?.own === own ? inspected.threadId : own;
   const [turns, setTurns] = useState(TURNS_PAGE);
   const [pick, setPick] = useState<{ threadId: string; turnId: string } | null>(
     null,
@@ -453,6 +460,36 @@ export function StepsTab({ threadId }: ExperimentalThreadActionTabProps) {
   const now = useLiveNow((steps?.running ?? false) || childRunning);
 
   const sidebarThreads = experimental_useSidebarThreads().threads;
+  const armada = useArmada(visible);
+  const groups = useMemo(
+    () => activeGroups(sidebarThreads, armada.captains),
+    [sidebarThreads, armada.captains],
+  );
+  const anyRunning = sidebarThreads.some(isRunning);
+  const tick = useLiveNow(anyRunning);
+  const titleOf = (id: string) =>
+    sidebarThreads.find((thread) => thread.id === id)?.displayTitle ?? "another thread";
+  const top = (
+    <>
+      <ActivePicker
+        groups={groups}
+        logos={armada.logos}
+        selected={threadId}
+        now={tick}
+        onPick={(id) => setInspected(id === own ? null : { own, threadId: id })}
+      />
+      {threadId === own ? null : (
+        <p className="m-0 flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground">
+          <span className="min-w-0 flex-1 truncate">
+            Viewing <span className="text-foreground">{titleOf(threadId)}</span>
+          </span>
+          <button type="button" onClick={() => setInspected(null)} className={TEXT_BUTTON}>
+            Back to this thread
+          </button>
+        </p>
+      )}
+    </>
+  );
   const hostId =
     sidebarThreads.find((thread) => thread.id === threadId)?.host?.id ?? null;
   const navigate = useBbNavigate();
@@ -470,25 +507,31 @@ export function StepsTab({ threadId }: ExperimentalThreadActionTabProps) {
 
   if (steps === undefined)
     return (
-      <div className="flex h-full flex-col gap-2 overflow-y-auto p-3">
-        {error === null ? (
-          <Note>Loading steps…</Note>
-        ) : (
-          <div className="flex items-center gap-2">
-            <Note className="min-w-0 flex-1">
-              Could not read this thread's steps: {error.message}
-            </Note>
-            <button type="button" onClick={() => void refetch()} className={TEXT_BUTTON}>
-              Retry
-            </button>
-          </div>
-        )}
+      <div className="flex h-full min-h-0 flex-col">
+        {top}
+        <div className="flex flex-col gap-2 overflow-y-auto p-3">
+          {error === null ? (
+            <Note>Loading steps…</Note>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Note className="min-w-0 flex-1">
+                Could not read this thread's steps: {error.message}
+              </Note>
+              <button type="button" onClick={() => void refetch()} className={TEXT_BUTTON}>
+                Retry
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     );
   if (steps.turns.length === 0)
     return (
-      <div className="p-3">
-        <Note>No steps yet. They show here as the agent works.</Note>
+      <div className="flex h-full min-h-0 flex-col">
+        {top}
+        <div className="p-3">
+          <Note>No steps yet. They show here as the agent works.</Note>
+        </div>
       </div>
     );
 
@@ -575,6 +618,7 @@ export function StepsTab({ threadId }: ExperimentalThreadActionTabProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {top}
       {header}
       <div className="min-h-0 flex-1 overflow-y-auto px-1">{body}</div>
     </div>

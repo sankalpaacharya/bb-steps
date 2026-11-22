@@ -16,6 +16,8 @@
     "app": "./app.tsx"
   },
   "dependencies": {
+    "@dicebear/core": "^9.4.3",
+    "@dicebear/micah": "^9.4.3",
     "zod": "^4.6.5"
   },
   "devDependencies": {

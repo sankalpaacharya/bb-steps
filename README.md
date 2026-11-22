@@ -27,6 +27,7 @@ Then open a thread, press **⌘J**, click **+**, and choose **Steps**. Requires 
 
 ## What you get
 
+- **Active**: every thread running now across bb, under its captain, with its running time. Pick one to inspect it here; the chat stays where it is
 - The message that is running now, or the newest one, with the others one click away under **messages**
 - **Now**: what the agent is doing right now, down to a subagent's current command
 - Where the time went: one bar, with the three biggest totals
